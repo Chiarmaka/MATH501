@@ -1,0 +1,483 @@
+
+setwd("C://Users//scikeh//Desktop//New folder")
+library(MASS)
+library(tree)
+library(readr)
+library(ggplot2)
+library(knitr)
+library(ggmcmc) 
+```
+
+# 1 Machine Learning Task
+
+
+shellfish <- read.table('shellfish.txt')
+attach(shellfish)
+
+
+## Machine Learning Part (a)
+
+#Visualize how different pairs of variables determine the shellfish species:
+  
+
+# Define points' color
+def.col <- rep('blue', 180)
+def.col[spec == 'O'] <- 'orange'
+
+
+par(mfrow=c(1,3))
+#
+## Carapace width vs. frontal love size
+#
+plot(c.width, f.size, col = def.col, xlab = 'Carapace width (mm)', ylab = 'Frontal lobe size (mm)', pch = 20)
+legend(x = 'topleft', legend = c('Blue species', 'Orange species'), col = c('blue', 'orange'), pch = 20)
+#
+## Rear width vs. frontal lobe size
+#
+plot(r.width, f.size, col = def.col, xlab = 'Rear width (mm)', ylab = 'Frontal lobe size (mm)', pch = 20)
+legend(x = 'topleft', legend = c('Blue species', 'Orange species'), col = c('blue', 'orange'), pch = 20)
+#
+## Rear width vs. carapace width
+#
+plot(r.width, c.width, col = def.col, xlab = 'Rear width (mm)', ylab = 'Carapace width (mm)', pch = 20)
+legend(x = 'topleft', legend = c('Blue species', 'Orange species'), col = c('blue', 'orange'), pch = 20)
+
+
+
+
+#All these three plots show a high correlation between variables, however there is a more
+#clear classification between species when using carapace width and frontal lobe size as determinants.
+
+## Machine Learning Part (b)
+
+#Perform linear discriminant analysis (LDA) to predict spec based on the two features f.size and c.width.
+
+
+shellfish.lda <- lda(spec ~ c.width + f.size, data = shellfish)
+shellfish.lda
+
+#Thus the linear discriminant function is:
+  
+ # \[
+  #  spec = -0.8929664 * c.width + 2.2523093 * f.size
+  #  \]
+
+#We can also conclude that in this data set, there is around 48.9% blue species and 51.1% orange species. The average of both carapace width (34.425) frontal lobe size (13.933) for blue species are lower than the ones for orange species. 
+
+#Training error: 
+  
+ # ```{r, message=FALSE, warning=FALSE}
+# predict the training data
+lda.pred <- predict(shellfish.lda)
+# class predictions for training data
+lda.class <-lda.pred$class
+# create a confusion matrix
+lda.tab <- table(lda.class, spec)
+# training errors
+(lda.tab[1,2] + lda.tab[2,1]) / sum(lda.tab)
+#```
+
+#Therefore, approximately only 1.1% data is incorrectly classified by LDA classifier.
+
+#Visualize the classification on the scatterplot:
+  
+#  ```{r, message=FALSE, warning=FALSE, fig.align='center', fig.show='hold',fig.width=5, fig.height=5}
+len <- 50
+# points covering the range of carapace width
+xp <- seq(17, 55, length = len)
+# points covering the range of frontal lobe size
+yp <- seq(6, 24, length = len)
+
+xygrid <- expand.grid(c.width = xp, f.size = yp)
+
+grid.lda <- predict(shellfish.lda, xygrid)
+
+col_lda <- rep('lightblue', len*len)
+for (i in 1:(len*len)) if (grid.lda$class[i]  == 'O') col_lda[i] <- 'indianred1'
+
+zp <- grid.lda$posterior[ , 1] - grid.lda$posterior[ ,2]
+
+plot(xygrid, col = col_lda, main = 'LDA Classifier', xlab = 'Carapace width (mm)',
+     ylab = 'Frontal lobe size (mm)')
+contour(xp, yp, matrix(zp, len), level = 0, add = TRUE, lwd = 2)
+points(c.width, f.size, pch = 20, col = def.col)
+#```
+
+## Machine Learning Part (c)
+
+#Use a classification tree to construct a classifier for spec based on f.size and c.width.
+
+#```{r, message=FALSE, warning=FALSE}
+shellfish.tree <- tree(spec ~ f.size + c.width, data = shellfish)
+summary(shellfish.tree)
+#```
+
+#Find the optimal number of tree nodes:
+  
+#  ```{r, message=FALSE, warning=FALSE, fig.align='center', fig.show='hold',fig.width=8, fig.height=3}
+cv.shellfish <- cv.tree(shellfish.tree, FUN = prune.misclass)
+# plot the result 
+plot(cv.shellfish$size, cv.shellfish$dev, type = 'b')
+#```
+
+#We can observe from the plot that when the nodes equal to 9, the tree has the lowest cross-validation error rate. Thus, the optimal tree size is 9. 
+
+#The resulting tree is shown below:
+  
+ # ```{r, message=FALSE, warning=FALSE, fig.align='center', fig.show='hold',fig.width=8, fig.height=3}
+## prune the tree
+#
+prune.shellfish <- prune.misclass(shellfish.tree, best = 9)
+#
+## display the resulting tree
+#
+plot(prune.shellfish)
+text(prune.shellfish, pretty = 0)
+#```
+
+## Machine Learning Part (d)
+
+#Perform Principal Components Analysis on f.size and c.width:
+  
+  #```{r, message=FALSE, warning=FALSE}
+# remove r.width and apply PCA 
+shellfish_pca <- princomp(shellfish[, -c(1,4)], cor = TRUE)
+#
+summary(shellfish_pca)
+#```
+#
+#Component 1 explains 98.2% of the variability in the data and component 2 explains 1.797% of the variability.
+
+## Machine Learning Part (e)
+
+#Use a decision tree to construct a classifier for spec based on the two principal components obtained in part (d).
+
+#```{r, message=FALSE, warning=FALSE}
+# create a data frame that including pca scores
+new_variables_df <- data.frame(shellfish_pca$scores) 
+# combine spec and scores
+new_variables_df$spec <- shellfish$spec
+
+pca_tree <- tree(spec ~ . , data = new_variables_df)
+summary(pca_tree) 
+#```
+
+#Determine the optimal tree size:
+  
+ # ```{r, message=FALSE, warning=FALSE, fig.align='center', fig.show='hold',fig.width=3, fig.height=3}
+cv.pca_tree <- cv.tree(pca_tree, FUN = prune.misclass)
+plot(cv.pca_tree$size, cv.pca_tree$dev, type = 'b')
+#```
+
+#The plot shows that the lowest cross-validation error rate occur when number of nodes equal to 4 and 6, thus we choose 4 as our optimal size. Then prune and display the tree:
+  
+#  ```{r, message=FALSE, warning=FALSE, fig.align='center', fig.show='hold',fig.width=3, fig.height=3}
+prune.pca_tree<- prune.misclass(pca_tree, best = 4)
+plot(prune.pca_tree)
+text(prune.pca_tree, pretty = 0)
+#```
+
+## Machine Learning Part (f)
+n <- nrow(shellfish)
+cv.predictions <- rep('Yes', n)
+
+
+for(i in 1:n) {
+  tree.fit <- tree(spec ~ f.size + c.width,  data = shellfish[-i,4])
+  cv.predictions[i] <- predict(tree.fit, newdata = shellfish[i,], type = "class")
+}
+
+tab <- table(cv.predictions, spec)
+tab
+
+#```
+
+# 2 Bayesian Statistics TaskF
+
+## First Sub-Task
+
+### Bayesian Statistics Part (a)
+```{r, echo=FALSE, eval=FALSE, message=FALSE, warning=FALSE}
+petrol <- read_csv("Petrol.csv")
+attach(petrol)
+```
+
+Create a scatter plot to display the petrol data.
+
+{r, message=FALSE, warning=FALSE}
+ggplot(petrol, aes(y = petrol$yield)) +
+  geom_point(aes(x = petrol$endpoint, col = 'endpoint')) +
+  geom_point(aes(x = petrol$gravity, col = 'gravity')) +
+  geom_point(aes(x = petrol$vapour, col = 'vapour')) +
+  geom_point(aes(x = petrol$temp_vap, col = 'temp_vap')) +
+  xlab("Value")
+
+
+### Bayesian Statistics Part (b)
+
+The statistical model for the data is:
+  
+  \begin{eqnarray}
+y_i & = & \beta_0 + \beta_1 endpoint_i + \beta_2 gravity_i + \beta_3 vapour_i + \beta_4 temp_vap_i + \epsilon_i
+\end{eqnarray}
+
+$\beta_1$ states that by keeping variables except endpoint equals to zero, one degree
+Fahrenheit change in temperature, the yield of crude oil will change $\beta_0 + \beta_1$.
+
+### Bayesian Statistics Part (c)
+
+Fit the abobe model in the frequentist framework and report  $\beta_0 , \beta_1, \beta_2, \beta_3, \beta_4$.
+
+```{r}
+m <- lm(yield ~ ., data = petrol)
+# intepret betas
+kable(summary(m)$coef, digits = 3)
+```
+
+Perform a frequentist hypothesis test of size 0.05 of whether vapour has an effect on petrol yield.
+
+```{r}
+# reduced model
+m2 <- lm(yield ~ vapour, data = petrol)
+summary(m2)
+```
+
+The p-value is 0.03 which is smaller than 0.05, we can conclude that vapour has an effect on petrol yield. The 95% confidence interval for $\beta_3$ is:
+  
+  ```{r}
+confint(m2)
+```
+
+### Bayesian Statistics Part (d)
+
+\begin{eqnarray}
+y_i & = & \beta_0 + \beta_1 endpoint_i + \beta_2 gravity_i + \beta_3 vapour_i + \beta_4 temp_vap_i + \epsilon_i
+\end{eqnarray}
+Use jags/BUGS code to perform inference about the following related statistical model in the Bayesian framework.
+
+```{r, message=FALSE, warning=FALSE}
+ggplot(petrol, aes(y = yield, x = value)) +
+  geom_point(aes(x = endpoint, col = 'endpoint')) +
+  geom_point(aes(x = gravity, col = 'gravity')) +
+  geom_point(aes(x = vapour, col = 'vapour')) +
+  geom_point(aes(x = temp_vap, col = 'temp_vap')) 
+```
+
+### Bayesian Statistics Part (b)
+
+The statistical model for the data is:
+  
+  \begin{eqnarray}
+y_i & = & \beta_0 + \beta_1 endpoint_i + \beta_2 gravity_i + \beta_3 vapour_i + \beta_4 temp_vap_i + \epsilon_i
+\end{eqnarray}
+
+$\beta_1$ states that by keeping variables except endpoint equals to zero, one degree
+Fahrenheit change in temperature, the yield of crude oil will change $\beta_0 + \beta_1$.
+
+### Bayesian Statistics Part (c)
+
+Fit the abobe model in the frequentist framework and report  $\beta_0 , \beta_1, \beta_2, \beta_3, \beta_4$.
+
+```{r}
+m <- lm(yield ~ ., data = petrol)
+# intepret betas
+kable(summary(m)$coef, digits = 3)
+```
+
+Perform a frequentist hypothesis test of size 0.05 of whether vapour has an effect on petrol yield.
+
+```{r}
+# reduced model
+m2 <- lm(yield ~ vapour, data = petrol)
+summary(m2)
+```
+
+The p-value is 0.03 which is smaller than 0.05, we can conclude that vapour has an effect on petrol yield. The 95% confidence interval for $\beta_3$ is:
+  
+  ```{r}
+confint(m2)
+```
+
+### Bayesian Statistics Part (d)
+
+Use jags/BUGS code to perform inference about the model in part (b) in the Bayesian framework.
+
+```{r}
+# model code in bugs
+bayesian_regression_model <- function(){
+  for(i in 1:n){ 
+    y[i] ~ dnorm(mu[i], tau) # Parametrized by the precision tau = 1 / sigma^2
+    mu[i] <- beta_0 + beta_1 * x1[i]  + beta_2 * x2[i] + beta_3 * x3[i] + beta_4 * x4[i]
+  }
+  beta_0 ~ dnorm(0.0, 1.0E-4) # Prior on beta_0 is normal with low precision
+  beta_1 ~ dnorm(0.0, 1.0E-4) # Prior on beta_1 is normal with low precision
+  beta_2 ~ dnorm(0.0, 1.0E-4) # Prior on beta_0 is normal with low precision
+  beta_3 ~ dnorm(0.0, 1.0E-4) # Prior on beta_0 is normal with low precision
+  beta_4 ~ dnorm(0.0, 1.0E-4) # Prior on beta_0 is normal with low precision
+  tau ~ dgamma(1.0E-3, 1.0E-3) # Prior on tau is gamma with small shape and rate parameters
+  sigma <- 1.0 / sqrt(tau)
+}
+library(R2jags)
+# prepare data for jags
+x1 <- endpoint
+x2 <- gravity
+x3 <- vapour
+x4 <- temp_vap
+y <- yield
+n <- length(x1)
+data_regression <- list('x1', 'x2', 'x3', 'x4', 'y', 'n')
+# perform bayesian inference
+bayesian_regression <- jags(data = data_regression, 
+                            parameters.to.save = c("beta_0",
+                                                   "beta_1",
+                                                   "beta_2",
+                                                   "beta_3",
+                                                   "beta_4",
+                                                   "tau",
+                                                   "sigma"),
+                            n.chains = 4,
+                            n.iter = 100000,
+                            model.file = bayesian_regression_model)
+```
+
+### Bayesian Statistics Part (e)
+
+A graphical presentation of the posterior distributions of $\beta_0 , \beta_1, \beta_2, \beta_3, \beta_4$.
+
+```{r}
+bayesian_regression.mcmc <- as.mcmc(bayesian_regression)
+# Create a ggs object
+bayesian_regression.ggs <- ggs(bayesian_regression.mcmc)
+# display posterior probability density functions
+ggs_density(bayesian_regression.ggs, family = "^beta")
+```
+
+comment...
+
+### Bayesian Statistics Part (f)
+
+A graphical presentation and the numerical values of a 95% credible interval for $\beta_3$.
+
+```{r}
+ggs_caterpillar(bayesian_regression.ggs, family = "^beta_3") 
++ geom_vline(xintercept=0, lty=2)
+
+bayesian_regression$BUGSoutput$summary["beta_3", c("2.5%", "97.5%")]
+```
+
+comment...
+
+### Bayesian Statistics Part (g)
+
+Perform the reduced Bayesian model.
+
+```{r}
+# model code in bugs
+bayesian_regression_model <- function(){
+  for(i in 1:n){ 
+    y[i] ~ dnorm(mu[i], tau) # Parametrized by the precision tau = 1 / sigma^2
+    mu[i] <- beta_0 + beta_1 * x1[i] + beta_4 * x4[i]
+  }
+  beta_0 ~ dnorm(0.0, 1.0E-4) # Prior on beta_0 is normal with low precision
+  beta_1 ~ dnorm(0.0, 1.0E-4) # Prior on beta_1 is normal with low precision
+  beta_4 ~ dnorm(0.0, 1.0E-4) # Prior on beta_0 is normal with low precision
+  tau ~ dgamma(1.0E-3, 1.0E-3) # Prior on tau is gamma with small shape and rate parameters
+  sigma <- 1.0 / sqrt(tau)
+}
+library(R2jags)
+# prepare data for jags
+x1 <- endpoint
+x4 <- temp_vap
+y <- yield
+n <- length(x1)
+data_regression <- list('x1', 'x4', 'y', 'n')
+# perform bayesian inference
+bayesian_regression <- jags(data = data_regression, 
+                            parameters.to.save = c("beta_0",
+                                                   "beta_1",
+                                                   "beta_4",
+                                                   "tau",
+                                                   "sigma"),
+                            model.file = bayesian_regression_model)
+```
+
+### Bayesian Statistics Part (h)
+
+Produce graphical presentations for $\beta_1$ and $\beta_4$ for the reduced model.
+
+```{r}
+
+caterpillar_beta1 <- ggs_caterpillar(bayesian_regression.ggs, family = "^beta_1")
+caterpillar_beta4 <- ggs_caterpillar(bayesian_regression.ggs, family = "^beta_4")
+#
+grid.arrange(caterpillar_beta1, caterpillar_beta4, nrow = 2)
+```
+
+The numerical values of 95% credible intervals for $\beta_1$ is:
+  
+  ```{r}
+bayesian_regression$BUGSoutput$summary["beta_1", c("2.5%", "97.5%")]
+```
+
+The numerical values of 95% credible intervals for $\beta_4$ is:
+  
+  ```{r, eval=FALSE}
+bayesian_regression$BUGSoutput$summary["beta_4", c("2.5%", "97.5%")]
+```
+
+comment...
+
+### Bayesian Statistics Part (i)
+
+Modify the BUGS/jags code of your reduced model to produce a credible interval for the mean petrol yield value and a Bayesian prediction interval for the petrol yield value when endpoint is 460 and temp_vap is 180.
+
+```{r}
+bayesian_regression_model_predict <- function(){
+  for(i in 1:n){ 
+    y[i] ~ dnorm(mu[i], tau) # Parametrized by the precision tau = 1 / sigma^2
+    mu[i] <- beta_0 + beta_1 * x1[i] + beta_4 * x4[i]
+  }
+  beta_0 ~ dnorm(0.0, 1.0E-4) # Prior on beta_0 is normal with low precision
+  beta_1 ~ dnorm(0.0, 1.0E-4) # Prior on beta_1 is normal with low precision
+  beta_4 ~ dnorm(0.0, 1.0E-4) # Prior on beta_0 is normal with low precision
+  tau ~ dgamma(1.0E-3, 1.0E-3) # Prior on tau is gamma with small shape and rate parameters
+  sigma <- 1.0 / sqrt(tau)
+  
+  
+  mu_new <- beta_0 + beta_1 * x1_new + beta_4 * x4_new
+  
+  y_new ~ dnorm(mu_new, tau)
+  
+}
+x1_new <- 460
+x4_new <- 180
+data_regression_predict <- list("x1", "x4", "y", "n", "x1_new", "x4_new")
+bayesian_regression_predict <- jags(data = data_regression_predict,
+                                    parameters.to.save = c("beta_0", "beta_1", "beta_4","tau", "sigma",
+                                                           "mu_new", "y_new"), # Monitor new values
+                                    n.iter = 100000,
+                                    n.chains = 3,
+                                    model.file = bayesian_regression_model_predict)
+```
+
+comment...
+
+### Bayesian Statistics Part (j)
+
+To decide which model is better, we need to compare the Deviance Information Criterion.
+
+The DIC for full model is:
+  
+  ```{r}
+bayesian_regression$BUGSoutput$DIC
+```
+
+The DIC for the reduced model is:
+  
+  ```{r}
+bayesian_regression_predict$BUGSoutput$DIC
+```
+
+Since DIC reprsents the badness of fit and lower DIC is better, we can conclude that the full model is more preferred.
+
+
