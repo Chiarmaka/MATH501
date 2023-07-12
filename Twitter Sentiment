@@ -1,0 +1,865 @@
+---
+title: Mapping cultural ecosystem services using social media tools – case study areas
+  based across Europe
+author: "Sandra Chiamaka Ikeh"
+date: "18/07/2020"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+  always_allow_html: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+```
+
+### Load the packages
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+library(rtweet)
+library(ggplot2)
+library(dplyr)
+library(imager)
+library(ggthemes)
+library(readr)
+library(jsonlite)
+library(tidytext)
+library(wordcloud)
+library(wordcloud2)
+library(tidyr)#Spread, separate, unite, text mining (also included in the tidyverse package)
+library(dplyr) #Data manipulation (also included in the tidyverse package)
+library(tidytext) #Text mining
+library(widyr) #Use for pairwise correlation
+
+#Visualizations!
+library(ggplot2) #Visualizations (also included in the tidyverse package)
+library(ggrepel) #`geom_label_repel`
+library(gridExtra) #`grid.arrange()` for multi-graphs
+library(knitr) #Create nicely formatted output tables
+library(kableExtra) #Create nicely formatted output tables
+library(formattable) #For the color_tile function
+library(circlize) #Visualizations - chord diagram
+library(memery) #Memes - images with plots
+library(magick) #Memes - images with plots (image_read)
+library(yarrr)  #Pirate plot
+library(radarchart) #Visualizations
+library(igraph) #ngram network diagrams
+library(ggraph) #ngram network diagrams
+library(ggmap)
+library(mapproj)
+
+
+```
+
+###Access to Twitter data, using the following keys and tokens.
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+  oauth_consumer_key="xvz1evFS4wEEPTGEFPHBog"
+  oauth_nonce="kYjzVBB8Y0ZFabxSWbWovY3uYSQ2pTgmZeNu2VS4cg" 
+  oauth_signature="tnnArxj06cWHq44gCs1OSKk%2FjLY%3D" 
+  oauth_signature_method="HMAC-SHA1"
+  oauth_timestamp="1318622958"
+  oauth_token="370773112-GmHxMAgYyLbNEtIKZeRNFsMKPR9EyMZeS9weJAEb"
+  oauth_version="1.0"
+```
+
+#plot world globe
+
+```{r}
+
+
+#twitter_search_global <- Map(  # Map applies search_tweets to each element: "euenvironment", "eubiodiversity",
+twitter_search_global <- Map(  # Map applies search_tweets to each element: "euenvironment", "eubiodiversity","euecosystem"
+  "search_tweets",
+  c ("euenvironment", "eubiodiversity" , "eu ecosystem"),
+  lang = "en",
+  include_rts = FALSE,
+  n = 2000
+)
+
+#save(twitter_search_global2,file="twitter_search_global4.Rdata")
+#save(file="twitter_search_global3.json")
+
+#twitter_search_globalll <- fromJSON("twitter_search_global3.json")
+
+twitter_search_global %>% toJSON() %>% write_lines("twitter_search_global4.json")
+#
+#
+# Read in the data
+
+#twitter_search_globalA <- stream_in(file("twitter_search_global4.json"))
+#
+
+plot_global <- do_call_rbind(twitter_search_global) %>% as.data.frame()
+
+
+
+
+
+#plot_global <- (twitter_search_global2b) %>% as.data.frame()
+
+plot_global <- lat_lng(plot_global) 
+
+
+#create new data frame with just the tweet texts, usernames and location data
+plot_global_s <- data.frame(date_time = plot_global$created_at,
+                         username = plot_global$screen_name,
+                         tweet_text = plot_global$text,
+                         long = plot_global$lng,
+                        lat = plot_global$lat)
+
+# create basemap of the globe
+# the theme_map() function cleans up the look of your map.
+
+world_basemap <- ggplot() +
+  borders("world", colour = "black", fill = "lightgrey") +
+  theme_map()
+world_basemap
+
+#head(plot_global_s)
+#plot_global_s
+#
+# remove na values
+plot_global_locations <- plot_global_s %>%
+ na.omit()
+
+#plot_global_locations
+#head(plot_global_locations)
+#
+#
+# Plot the data modifying the basemap of the globe with ggplot2 features
+#
+world_basemap +
+  geom_point(data = plot_global_locations, aes(x = long, y = lat),
+             colour = 'darkred', alpha = .5) +
+  labs(title = "Locations of tweets")
+
+### Improve the plot to deal with overlapping points
+# 
+# round latitude and longitude and group close tweets
+plot_global_locations_grp <- plot_global_locations %>%
+  mutate(long_round = round(long, 2),
+         lat_round = round(lat, 2)) %>%
+  group_by(long_round, lat_round) %>%
+  summarise(total_count = n()) %>%
+  ungroup() %>%
+  mutate(total_count = factor(total_count))
+plot_global_locations_grp
+
+# Plot tweet data on flood, earthquake, tsunami, grouping close tweets and 
+# using larger points to show higer frequency
+grouped_tweet_map <- world_basemap + 
+  geom_point(data = plot_global_locations_grp,
+            aes(long_round, lat_round, size = total_count),
+            color = "purple", alpha = .5) + 
+  coord_fixed() +
+  labs(title = "Twitter Activity and locations of tweets on flood, earthquake, tsunami",
+       size = "Number of Tweets")
+grouped_tweet_map
+
+```
+
+# Now let's focus on search word Eu Environment
+
+# Find the popular words from the tweets 
+
+```{r}
+twitter_search_global_eu_environment <- twitter_search_global$euenvironment
+twitter_search_global_eu_environment
+
+head(twitter_search_global_eu_environment$text)
+
+# Frist, remove http elements manually
+twitter_search_global_eu_environment$stripped_text <- gsub("http.*","",  twitter_search_global_eu_environment$text)
+twitter_search_global_eu_environment$stripped_text <- gsub("https.*","", twitter_search_global_eu_environment$stripped_text)
+head(twitter_search_global_eu_environment$stripped_text)
+
+# Let's remove punctuation, convert to lowercase, add id for each tweet:
+twitter_search_global_eu_environment_clean <- twitter_search_global_eu_environment %>%
+  select(stripped_text, text) %>% 
+  mutate(tweetnumber = row_number()) %>% # create new variable denoting the tweet number
+  unnest_tokens(word, stripped_text)
+
+head(twitter_search_global_eu_environment_clean)
+
+# Now you can plot your data. 
+# plot the top 10 words -- notice any issues?
+twitter_search_global_eu_environment_clean %>%
+  count(word, sort = TRUE) %>% # count of number of occurencies of each word and sort according to count
+  head(10) %>% # extract top 10 words
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(x = word, y = n)) +
+  geom_col(fill = "pink", color = "red") +
+  coord_flip() +
+  labs(x = "Unique Words",
+       y = "Frequency",
+       title = "Count of unique words found in tweets with #climatechange") + 
+  theme(axis.text = element_text(size = 16, color = "black"), 
+        axis.title = element_text(size = 16, color = "black"),
+        title = element_text(size = 18))
+
+# load list of stop words - from the tidytext package
+data("stop_words")
+#
+# view first 6 words
+#head(stop_words)
+# the lexicon is the source of the stop word.
+#
+#nrow(twitter_search_global_eu_environment_clean)
+#
+
+# remove stop words from your list of words
+eu_environment_cleaned_tweet_words <- twitter_search_global_eu_environment_clean %>%
+  anti_join(stop_words) # return all rows from climate_tweets_clean where there are not matching values in stop_words
+#
+# there should be fewer words now
+nrow(eu_environment_cleaned_tweet_words)
+
+eu_environment_cleaned_tweet_words %>%
+  count(word, sort = TRUE) %>%
+  head(10) %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(x = word, y = n)) +
+  geom_col(fill = "pink", color = "red") +
+  coord_flip() +
+  labs(x = "Unique Words",
+       y = "Frequency",
+       title = "Top 10 most popular words found in tweets with #climatechange") + 
+  theme(axis.text = element_text(size = 14, color = "black"), 
+        axis.title = element_text(size = 14, color = "black"),
+        title = element_text(size = 16))
+
+# Define our own stopwords that we don't want to include 
+eu_environment_words <- data.frame(word = c("euenvironment", "eu", "environment" , "europe"))
+
+# remove our own stopwords from the list of words too
+eu_environment_cleaned_tweet_words_2 <- eu_environment_cleaned_tweet_words %>%
+  anti_join(eu_environment_words) 
+#
+# there should be fewer words now
+nrow(eu_environment_cleaned_tweet_words_2)
+
+# plot the top 10 most popular words found in tweets with #climatechange
+eu_environment_cleaned_tweet_words_2 %>%
+  count(word, sort = TRUE) %>%
+  head(10) %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(x = word, y = n)) +
+  geom_col(fill = "pink", color = "red") +
+  coord_flip() +
+  labs(x = "Unique Words",
+       y = "Frequency",
+       title = "Top 10 most popular words found in tweets with #climatechange") + 
+  theme(axis.text = element_text(size = 14, color = "black"), 
+        axis.title = element_text(size = 14, color = "black"),
+        title = element_text(size = 16))
+
+
+```
+
+### plot Wordclouds for eu environment 
+
+```{r}
+head(eu_environment_cleaned_tweet_words_2)
+
+# the count of each word / the total count
+#
+eu_environment_cleaned_tweet_words_3 <- eu_environment_cleaned_tweet_words_2 %>%
+  count(word, sort = TRUE) %>% 
+  mutate(freq = n / sum(n))
+head(eu_environment_cleaned_tweet_words_3)
+
+# Read the help file of wordcloud so that you can see what the arguments do
+#
+with(eu_environment_cleaned_tweet_words_3, 
+     wordcloud(word, freq, 
+               min.freq = 1, 
+               max.words = 50,
+               random.order = FALSE, 
+               colors = brewer.pal(8, "Dark2"), 
+               scale = c(4.5, 0.1)))
+
+title(main = "Wordcloud for Tweets containing #euenvironment", 
+      cex.main = 2) # Controls the size of the title
+
+display.brewer.all()
+
+eu_environment_cleaned_tweet_words_4 <- eu_environment_cleaned_tweet_words_3 %>% select(word, freq)
+#
+# Produce wordcloud
+#
+wordcloud2(eu_environment_cleaned_tweet_words_4)
+
+
+```
+
+#positive abd negative words
+
+```{r}
+# Join sentiment classification to the tweet words
+eu_environment_bing_word_counts <- eu_environment_cleaned_tweet_words_2 %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  mutate(word = reorder(word, n)) 
+head(eu_environment_bing_word_counts)
+#
+#
+# Finally, plot top words, grouped by positive vs. negative sentiment. 
+# it could be interesting to plot sentiment over time to see how sentiment changed over time.
+#
+eu_environment_bing_word_counts %>%
+  group_by(sentiment) %>%
+  top_n(10) %>%
+  ungroup() %>%
+  ggplot(aes(word, n, fill = sentiment)) +
+  geom_col(show.legend = FALSE) +
+  coord_flip() +
+  facet_wrap(~sentiment, scales = "free_y") +
+  labs(title = "Most common Positive and Negative words in tweets on Climate Change",
+       y = "Sentiment",
+       x = NULL) +
+  theme(axis.text = element_text(size = 14, color = "black"), 
+        axis.title = element_text(size = 14, color = "black"),
+        title = element_text(size = 10))
+
+#
+
+```
+
+
+
+## find the user tweeting about eu environment
+
+```{r echo=FALSE}
+user_eu_environment <-twitter_search_global$euenvironment %>% 
+  group_by(screen_name) %>% 
+  arrange(desc(followers_count)) 
+ # head(10)
+
+unique(user_eu_environment$screen_name)
+
+
+```
+
+#produce a plot showing the user profiles
+
+```{r}
+twitter_search_global$euenvironment%>% 
+  group_by(screen_name) %>% 
+  arrange(desc(followers_count)) %>% 
+  head(20) %>% 
+  ggplot(aes(reorder(screen_name, followers_count), followers_count, fill = name)) + 
+  geom_col() + 
+  coord_flip() +
+  labs(title='Top Users with # On Their Profile', 
+       x="Users", 
+       caption = "Source: Data collected from Twitter's REST API via rtweet") 
+```
+
+#Top tweet by amount of likes
+
+```{r echo=FALSE}
+user_eu_environment <-twitter_search_global$euenvironment %>% 
+  group_by(text) %>% 
+  arrange(desc(favorite_count))%>%
+  head(10)
+
+unique(user_eu_environment$text)
+
+
+```
+
+# Finf the top location where Eu environment is coming from
+#Let's transform them in NAs and then remove them with na.omit()
+
+```{r}
+twitter_search_global_eu_environment$location[twitter_search_global_eu_environment$location==""] <- NA
+
+#Let's check the names of the top locations
+twitter_search_global_eu_environment %>%
+  count(location, sort = TRUE) %>%
+  mutate(location = reorder(location,n)) %>%
+  na.omit() %>%
+  head(10)
+```
+
+# We can use the function recode form the dplyr package 
+
+```{r}
+# We can use the function recode form the dplyr package 
+eu_environment_location <- twitter_search_global_eu_environment %>% mutate(location_rec = 
+                             recode(location, "London, England" = "United Kingdom", "London, UK" = "United Kingdom",
+                                    "Berlin, Deutschland" = "Germany" , "London" = "United Kingdom" , "UK" = "United Kingdom",
+                                    "Brussels" = "Belgium" , "Germany" = "Germany" ,
+                                    "Brussels, Belgium" = "Belgium", "Berlin" = "Germany" , 
+                                    "France" = "France" , "Berlin, Germany" = "Germany" , 
+                                    "Paris, France" = "France", "Europa" = "Europe", 
+                             ))
+
+# check the names of the top locations 
+
+eu_environment_location %>%
+  count(location_rec, sort = TRUE) %>%
+  mutate(location_rec = reorder(location_rec,n)) %>%
+  na.omit() %>%
+  head(20) 
+
+```
+
+# plot top locations
+
+```{r}
+
+eu_environment_location %>%
+  count(location_rec, sort = TRUE) %>%
+  mutate(location_rec = reorder(location_rec,n)) %>%
+  na.omit() %>%
+  head(10) %>%
+  ggplot(aes(x = location_rec,y = n)) +
+  geom_col(fill = "blue") +
+  coord_flip() +
+  labs(x = "Top Locations",
+       y = "Frequency",
+       title = "Where Twitter users using europe environment are from") + 
+  theme(axis.text = element_text(size = 16, color = "black"), 
+        axis.title = element_text(size = 16, color = "black"),
+        title = element_text(size = 10))
+
+```
+
+# get image url from twitter
+
+```{r}
+eu_environment_image_url <- twitter_search_global_eu_environment %>%
+  filter(!is.na(media_url)) %>% 
+  select(media_url) %>% 
+  head(5)
+
+eu_environment_image_url$media_url
+```
+
+#Now displaying the images gotten from eu_environment
+# Eu enviornment image 1
+```{r fig.height=8, fig.width=8}
+eu_environment_Image1 <- ("http://pbs.twimg.com/media/EfNvn8pXsAImjXw.jpg")
+eu_environment_Image1b <- image_read(eu_environment_Image1)
+plot(eu_environment_Image1b)
+
+```
+
+#Eu environment image 2
+
+```{r fig.height=8, fig.width=10}
+eu_environment_Image2 <- ("http://pbs.twimg.com/media/EfC5vcNX0AEGGb6.jpg")
+eu_environment_Image2b <- image_read(eu_environment_Image2)
+plot(eu_environment_Image2b)
+
+```
+
+
+# Now let's focus on search word Eu Biodiversity
+
+# Find the popular words from the tweets 
+
+```{r}
+twitter_search_global_eu_biodiversity <- twitter_search_global$eubiodiversity
+twitter_search_global_eu_biodiversity
+
+head(twitter_search_global_eu_biodiversity$text)
+
+# Frist, remove http elements manually
+twitter_search_global_eu_biodiversity$stripped_text <- gsub("http.*","",  twitter_search_global_eu_biodiversity$text)
+twitter_search_global_eu_biodiversity$stripped_text <- gsub("https.*","", twitter_search_global_eu_biodiversity$stripped_text)
+head(twitter_search_global_eu_biodiversity$stripped_text)
+
+# Let's remove punctuation, convert to lowercase, add id for each tweet:
+twitter_search_global_eu_biodiversity_clean <- twitter_search_global_eu_biodiversity %>%
+  select(stripped_text) %>% 
+  mutate(tweetnumber = row_number()) %>% # create new variable denoting the tweet number
+  unnest_tokens(word, stripped_text)
+
+head(twitter_search_global_eu_biodiversity_clean)
+
+# Now you can plot your data. 
+# plot the top 10 words -- notice any issues?
+twitter_search_global_eu_biodiversity_clean %>%
+  count(word, sort = TRUE) %>% # count of number of occurencies of each word and sort according to count
+  head(10) %>% # extract top 10 words
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(x = word, y = n)) +
+  geom_col(fill = "pink", color = "red") +
+  coord_flip() +
+  labs(x = "Unique Words",
+       y = "Frequency",
+       title = "Count of unique words found in tweets with #climatechange") + 
+  theme(axis.text = element_text(size = 16, color = "black"), 
+        axis.title = element_text(size = 16, color = "black"),
+        title = element_text(size = 18))
+
+# load list of stop words - from the tidytext package
+data("stop_words")
+#
+# view first 6 words
+head(stop_words)
+# the lexicon is the source of the stop word.
+#
+nrow(twitter_search_global_eu_biodiversity_clean)
+#
+
+# remove stop words from your list of words
+eu_biodiversity_cleaned_tweet_words <- twitter_search_global_eu_biodiversity_clean %>%
+  anti_join(stop_words) # return all rows from climate_tweets_clean where there are not matching values in stop_words
+#
+# there should be fewer words now
+nrow(eu_biodiversity_cleaned_tweet_words)
+
+eu_biodiversity_cleaned_tweet_words %>%
+  count(word, sort = TRUE) %>%
+  head(10) %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(x = word, y = n)) +
+  geom_col(fill = "pink", color = "red") +
+  coord_flip() +
+  labs(x = "Unique Words",
+       y = "Frequency",
+       title = "Top 10 most popular words found in tweets with #eu biodiversity") + 
+  theme(axis.text = element_text(size = 14, color = "black"), 
+        axis.title = element_text(size = 14, color = "black"),
+        title = element_text(size = 16))
+
+# Define our own stopwords that we don't want to include 
+eu_biodiversity_words <- data.frame(word = c("eubiodiversity", "eu", "biodiversity" , "europe"))
+
+# remove our own stopwords from the list of words too
+eu_biodiversity_cleaned_tweet_words_2 <- eu_biodiversity_cleaned_tweet_words %>%
+  anti_join(eu_biodiversity_words) 
+#
+# there should be fewer words now
+nrow(eu_biodiversity_cleaned_tweet_words_2)
+
+# plot the top 10 most popular words found in tweets with #climatechange
+eu_biodiversity_cleaned_tweet_words_2 %>%
+  count(word, sort = TRUE) %>%
+  head(10) %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(x = word, y = n)) +
+  geom_col(fill = "pink", color = "red") +
+  coord_flip() +
+  labs(x = "Unique Words",
+       y = "Frequency",
+       title = "Top 10 most popular words found in tweets with #climatechange") + 
+  theme(axis.text = element_text(size = 14, color = "black"), 
+        axis.title = element_text(size = 14, color = "black"),
+        title = element_text(size = 16))
+
+
+```
+
+### plot Wordclouds for eu biodiversity
+
+```{r}
+head(eu_biodiversity_cleaned_tweet_words_2)
+
+# the count of each word / the total count
+#
+eu_biodiversity_cleaned_tweet_words_3 <- eu_biodiversity_cleaned_tweet_words_2 %>%
+  count(word, sort = TRUE) %>% 
+  mutate(freq = n / sum(n))
+head(eu_biodiversity_cleaned_tweet_words_3)
+
+# Read the help file of wordcloud so that you can see what the arguments do
+#
+with(eu_biodiversity_cleaned_tweet_words_3, 
+     wordcloud(word, freq, 
+               min.freq = 1, 
+               max.words = 50,
+               random.order = FALSE, 
+               colors = brewer.pal(8, "Dark2"), 
+               scale = c(4.5, 0.1)))
+
+title(main = "Wordcloud for Tweets containing #eubiodiversity", 
+      cex.main = 2) # Controls the size of the title
+
+display.brewer.all()
+
+eu_biodiversity_cleaned_tweet_words_4 <- eu_biodiversity_cleaned_tweet_words_3 %>% select(word, freq)
+#
+# Produce wordcloud
+#
+wordcloud2(eu_biodiversity_cleaned_tweet_words_4)
+
+
+```
+
+#positive abd negative words
+
+```{r}
+# Join sentiment classification to the tweet words
+eu_biodiversity_bing_word_counts <- eu_biodiversity_cleaned_tweet_words_2 %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  mutate(word = reorder(word, n)) 
+head(eu_biodiversity_bing_word_counts)
+#
+#
+# Finally, plot top words, grouped by positive vs. negative sentiment. 
+# it could be interesting to plot sentiment over time to see how sentiment changed over time.
+#
+eu_biodiversity_bing_word_counts %>%
+  group_by(sentiment) %>%
+  top_n(10) %>%
+  ungroup() %>%
+  ggplot(aes(word, n, fill = sentiment)) +
+  geom_col(show.legend = FALSE) +
+  coord_flip() +
+  facet_wrap(~sentiment, scales = "free_y") +
+  labs(title = "Most common Positive and Negative words in tweets on eu biodiversity",
+       y = "Sentiment",
+       x = NULL) +
+  theme(axis.text = element_text(size = 14, color = "black"), 
+        axis.title = element_text(size = 14, color = "black"),
+        title = element_text(size = 10))
+
+#
+
+```
+
+
+
+## find the user tweeting about eu biodiversity
+
+```{r echo=FALSE}
+user_eu_biodiversity <-twitter_search_global$eubiodiversity %>% 
+  group_by(screen_name) %>% 
+  arrange(desc(followers_count)) 
+ # head(10)
+
+unique(user_eu_biodiversity$screen_name)
+
+
+```
+
+#produce a plot showing the user profiles
+
+```{r}
+twitter_search_global$eubiodiversity%>% 
+  group_by(screen_name) %>% 
+  arrange(desc(followers_count)) %>% 
+  head(20) %>% 
+  ggplot(aes(reorder(screen_name, followers_count), followers_count, fill = name)) + 
+  geom_col() + 
+  coord_flip() +
+  labs(title='Top Users with # On Their Profile', 
+       x="Users", 
+       caption = "Source: Data collected from Twitter's REST API via rtweet") 
+```
+
+#Top tweet by amount of likes
+
+```{r echo=FALSE}
+user_eu_biodiversity <-twitter_search_global$eubiodiversity %>% 
+  group_by(text) %>% 
+  arrange(desc(favorite_count))%>%
+  head(10)
+
+unique(user_eu_biodiversity$text)
+
+
+```
+
+# Finf the top location where Eu environment is coming from
+#Let's transform them in NAs and then remove them with na.omit()
+
+```{r}
+twitter_search_global_eu_biodiversity$location[twitter_search_global_eu_biodiversity$location==""] <- NA
+
+#Let's check the names of the top locations
+twitter_search_global_eu_biodiversity %>%
+  count(location, sort = TRUE) %>%
+  mutate(location = reorder(location,n)) %>%
+  na.omit() %>%
+  head(10)
+```
+
+# We can use the function recode form the dplyr package 
+
+```{r}
+# We can use the function recode form the dplyr package 
+eu_biodiversity_location <- twitter_search_global_eu_biodiversity %>% mutate(location_rec = 
+                             recode(location, "London, England" = "United Kingdom", "London, UK" = "United Kingdom",
+                                    "Berlin, Deutschland" = "Germany" , "London" = "United Kingdom" , "UK" = "United Kingdom",
+                                    "Brussels" = "Belgium" , "Germany" = "Germany" , "European Union" = "Europe" , 
+                                    "European Union " = "Europe" ,  "12-14 Lr Mount St, Dublin 2" = "Ireland" ,
+                                    "Brussels, Belgium" = "Belgium", "Berlin" = "Germany" ,  
+                                    "Stockholm, Sweden" = "Sweden", "Uppsala, Sverige" = "Sweden" , 
+                                    "France" = "France" , "Berlin, Germany" = "Germany" , 
+                                    "Paris, France" = "France", "Europa" = "Europe", 
+                             ))
+
+# check the names of the top locations 
+
+eu_biodiversity_location %>%
+  count(location_rec, sort = TRUE) %>%
+  mutate(location_rec = reorder(location_rec,n)) %>%
+  na.omit() %>%
+  head(20) 
+
+```
+
+# plot top locations
+
+```{r}
+
+eu_biodiversity_location %>%
+  count(location_rec, sort = TRUE) %>%
+  mutate(location_rec = reorder(location_rec,n)) %>%
+  na.omit() %>%
+  head(10) %>%
+  ggplot(aes(x = location_rec,y = n)) +
+  geom_col(fill = "blue") +
+  coord_flip() +
+  labs(x = "Top Locations",
+       y = "Frequency",
+       title = "Where Twitter users using europe environment are from") + 
+  theme(axis.text = element_text(size = 16, color = "black"), 
+        axis.title = element_text(size = 16, color = "black"),
+        title = element_text(size = 10))
+
+```
+
+# get image url from twitter
+
+```{r}
+eu_biodiversity_image_url <- twitter_search_global_eu_biodiversity %>%
+  filter(!is.na(media_url)) %>% 
+  select(media_url) %>% 
+  head(5)
+
+eu_biodiversity_image_url$media_url
+```
+
+#Now displaying the images gotten from eu_biodiversity
+# Eu enviornment image 1
+```{r fig.height=8, fig.width=8}
+eu_biodiversity_Image1 <- ("http://pbs.twimg.com/media/EfR1ds8XkAEJQvc.jpg")
+eu_biodiversity_Image1b <- image_read(eu_biodiversity_Image1)
+plot(eu_biodiversity_Image1b)
+
+```
+
+#Eu environment image 2
+
+```{r fig.height=8, fig.width=10}
+eu_biodiversity_Image2 <- ("https://pbs.twimg.com/media/EfOBxdMWAAAd4NI?format=jpg&name=900x900")
+eu_biodiversity_Image2b <- image_read(eu_biodiversity_Image2)
+plot(eu_biodiversity_Image2b)
+
+```
+
+```{r}
+cultural_ecosystem <- search_tweets(
+  q = "cultural ecosystem", n = 1000
+)
+cultural_ecosystem 
+```
+
+
+```{r fig.height=5, fig.width=10}
+
+head(cultural_ecosystem$text)
+
+# Frist, remove http elements manually
+cultural_ecosystem$stripped_text <- gsub("http.*","",  cultural_ecosystem$text)
+cultural_ecosystem$stripped_text <- gsub("https.*","", cultural_ecosystem$stripped_text)
+head(cultural_ecosystem$stripped_text)
+
+# Let's remove punctuation, convert to lowercase, add id for each tweet:
+cultural_ecosystem_clean <- cultural_ecosystem %>%
+  select(stripped_text) %>% 
+  mutate(tweetnumber = row_number()) %>% # create new variable denoting the tweet number
+  unnest_tokens(word, stripped_text)
+
+head(cultural_ecosystem_clean)
+
+# Now you can plot your data. 
+# plot the top 10 words -- notice any issues?
+cultural_ecosystem_clean %>%
+  count(word, sort = TRUE) %>% # count of number of occurencies of each word and sort according to count
+  head(10) %>% # extract top 10 words
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(x = word, y = n)) +
+  geom_col(fill = "pink", color = "red") +
+  coord_flip() +
+  labs(x = "Unique Words",
+       y = "Frequency",
+       title = "Count of unique words found in tweets with #cultural_ecosystem") + 
+  theme(axis.text = element_text(size = 16, color = "black"), 
+        axis.title = element_text(size = 16, color = "black"),
+        title = element_text(size = 18))
+
+# load list of stop words - from the tidytext package
+data("stop_words")
+#
+# view first 6 words
+head(stop_words)
+# the lexicon is the source of the stop word.
+#
+nrow(cultural_ecosystem_clean)
+#
+
+# remove stop words from your list of words
+cultural_ecosystem_cleaned_tweet_words <- cultural_ecosystem_clean %>%
+  anti_join(stop_words) # return all rows from climate_tweets_clean where there are not matching values in stop_words
+#
+# there should be fewer words now
+nrow(cultural_ecosystem_cleaned_tweet_words)
+
+cultural_ecosystem_cleaned_tweet_words %>%
+  count(word, sort = TRUE) %>%
+  head(10) %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(x = word, y = n)) +
+  geom_col(fill = "pink", color = "red") +
+  coord_flip() +
+  labs(x = "Unique Words",
+       y = "Frequency",
+       title = "Top 10 most popular words found in tweets with #eu biodiversity") + 
+  theme(axis.text = element_text(size = 14, color = "black"), 
+        axis.title = element_text(size = 14, color = "black"),
+        title = element_text(size = 16))
+
+# Define our own stopwords that we don't want to include 
+cultural_ecosystem_words <- data.frame(word = c("cultural ecosystem", "culturalecosystem", "cultural" , "ecosystem"))
+
+# remove our own stopwords from the list of words too
+cultural_ecosystem_cleaned_tweet_words_2 <- cultural_ecosystem_cleaned_tweet_words %>%
+  anti_join(cultural_ecosystem_words) 
+#
+# there should be fewer words now
+nrow(cultural_ecosystem_cleaned_tweet_words_2)
+
+# plot the top 10 most popular words found in tweets with #climatechange
+cultural_ecosystem_cleaned_tweet_words_2 %>%
+  count(word, sort = TRUE) %>%
+  head(10) %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(x = word, y = n)) +
+  geom_col(fill = "pink", color = "red") +
+  coord_flip() +
+  labs(x = "Unique Words",
+       y = "Frequency",
+       title = "Top 10 most popular words found in tweets with #cultural_ecosystem") + 
+  theme(axis.text = element_text(size = 14, color = "black"), 
+        axis.title = element_text(size = 14, color = "black"),
+        title = element_text(size = 16))
+
+```
+
+
+
+
+
+
