@@ -1,0 +1,244 @@
+##
+setwd("C://Users//scikeh//Desktop//New folder")
+##
+
+Petrol <- read.csv('Petrol.csv')
+attach(Petrol)
+
+
+##################### Bayesian Statistics Part (a)???
+
+library(dplyr)
+library(tidyr)
+
+#Petrol_sep <- Petrol %>% separate(col = "V1", 
+                                     # into = c("yield", "endpoint","gravity", "vapour", "temp_vap"), sep = ",")
+#
+#Petrol_sep = Petrol_sep[-1,]
+
+
+library(ggplot2)
+
+ggplot(Petrol, aes(y = yield, x = value)) +
+  geom_point(aes(x = endpoint, col = 'endpoint')) +
+  geom_point(aes(x = gravity, col = 'gravity')) +
+  geom_point(aes(x = vapour, col = 'vapour')) +
+  geom_point(aes(x = temp_vap, col = 'temp_vap')) 
+
+#################### Bayesian Statistics Part (b)
+
+plot(yield ~ endpoint, 
+     data = Petrol, 
+     xlab = "endpoint", 
+     ylab = "yield", 
+     pch = 16)
+
+m <- lm(yield ~ endpoint, 
+        data = Petrol)
+
+#
+abline(m)
+#
+# Estimates of the parameters beta_0 and beta_1, with p-values
+#
+summary(m)
+
+
+################## Bayesian Statistics Part (c)???
+
+confint(m)
+
+summary(m)$sigma
+
+x_new <- 0.05
+
+predict(m, 
+        newdata = data.frame(vapour = x_new), 
+        interval = "confidence")
+#
+# Prediction interval for a new value 
+# y_new = beta_0 + beta_1 x_new + epsilon_new, when x_new = 50
+#
+predict(m, 
+        newdata = data.frame(vapour = x_new), 
+        interval = "prediction")
+
+curve(dnorm(x, mean = 0, sd = 100),
+      xlim = c(-300, 300),
+      ylim = c(0, 0.01),
+      xlab = expression(beta[3]), 
+      ylab = expression(paste("Prior belief ", pi(beta[3]))))
+
+abline(h = 0)
+
+############################## Bayesian Statistics Part (d)???
+
+Bayesian_regression_model <- function(){
+  
+  for(i in 1:n){ # n is the sample size (number of data points)
+    
+    y[i] ~ dnorm(mu[i], tau) # Parametrized by the precision tau = 1 / sigma^2
+    mu[i] <- beta_0 + beta_1 * x1[i] + beta_2 * x2[i] + beta_3 * x3[i] + beta_4 * x4[i]
+  }
+  #
+  # Priors
+  #
+  beta_0 ~ dnorm(0.0, 1.0E-4) # Prior on beta_0 is normal with low precision
+  beta_1 ~ dnorm(0.0, 1.0E-4) # Prior on beta_1 is normal with low precision
+  beta_2 ~ dnorm(0.0, 1.0E-4) # Prior on beta_1 is normal with low precision
+  beta_3 ~ dnorm(0.0, 1.0E-4)
+  beta_4 ~ dnorm(0.0, 1.0E-4)
+  tau ~ dgamma(1.0E-3, 1.0E-3) # Prior on tau is gamma with small shape and rate parameters
+  #
+  # Definition of sigma: it's completely determied by tau
+  #
+  sigma <- 1.0 / sqrt(tau)  
+}
+  
+  library(R2jags)
+  
+  # Prepare the data for jags
+  # The above BUGS code uses n, y and x
+  x1 <- endpoint
+  x2 <- gravity
+  x3 <- vapour
+  x4 <- temp_vap
+  
+  y <- yield
+ # x <- endpoint
+# z <- temp_vap
+  #
+  n <- length(x1) # Sample size of the data
+  #
+  # All the data together
+  #
+  data_Regression <- list("x1", "x2","x3","x4", "y", "n")
+  #
+  # ---------------------------------------------
+  #
+  # Perform Bayesian inference about the parameters
+  # beta_0, beta_1, tau and sigma = 1 / sqrt(tau)
+  #
+  # Sample from the posterior distribution of the
+  # parameters given the data
+  #
+  Bayesian_Regression <- jags(data = data_Regression, 
+                              parameters.to.save = c("beta_0", 
+                                                     "beta_1",
+                                                     "beta_2",
+                                                     "beta_3",
+                                                     "beta_4",
+                                                     "tau", 
+                                                     "sigma"), 
+                              n.iter = 100000, # (Related to) size of sample required from the posterior
+                              n.chains = 3, # Here, we repeat our sampling from the posterior three times
+                              # The Gibbs sampler algorithm is iterative and
+                              # requires a starting point.  By default, jags specifies the starting point for you.
+                              # Here, jags runs the algorith three times, from three different starting points.
+                              model.file = Bayesian_regression_model)
+ 
+  #
+  print(Bayesian_Regression, intervals = c(0.025, 0.5, 0.975))
+  #
+ 
+  #
+  Bayesian_Regression$BUGSoutput$DIC
+  Bayesian_Regression.mcmc <- as.mcmc(Bayesian_Regression)
+
+  library(ggmcmc) # You may need to install this package on your own machine
+  #
+  Bayesian_Regression.ggs <- ggs(Bayesian_Regression.mcmc)
+  #
+  # Traceplots
+  #
+  ggs_traceplot(Bayesian_Regression.ggs) 
+  #
+ 
+  #
+  ggs_density(Bayesian_Regression.ggs)
+  #
+  
+  #
+  ggs_density(Bayesian_Regression.ggs, family = "^beta")
+  #
+  # Some modifications for display purposes
+  #
+  ggs_density(Bayesian_Regression.ggs, family = "^beta") +
+    theme(axis.title = element_text(size = 18),
+          axis.text = element_text(size = 18),
+          strip.text.x = element_text(size = 24),
+          legend.text = element_text(size = 18),
+          legend.title = element_text(size = 18))
+  #
+  # We'll add the priors to see how they have been updated
+  #
+  # We have used the same prior for beta_0 and beta_1
+  #
+  N <- 200 # Sequence length
+  #
+  # Define a sequence of beta values
+  #
+  beta_seq <- seq(from = -100, to = 100, length = N)
+  #
+  # Define the values of the prior probability density function
+  #
+  prior_beta_seq <- dnorm(beta_seq, mean = 0, sd = 1 / sqrt(1.0E-4))
+  
+  
+  #
+  # Put the beta values and the probability density function values together in
+  # the same data frame
+  #
+  prior_beta_df <- data.frame(beta_seq, prior_beta_seq)
+  #
+  # Now add the priors
+  #
+  ggs_density(Bayesian_Regression.ggs, family = "^beta") +
+    theme(axis.title = element_text(size = 18),
+          axis.text = element_text(size = 18),
+          strip.text.x = element_text(size = 24),
+          legend.text = element_text(size = 18),
+          legend.title = element_text(size = 18)) +
+    # Add the priors
+    geom_line(aes(x = beta_seq, 
+                  y = prior_beta_seq), 
+              data = prior_beta_df,
+              inherit.aes = FALSE) +
+    labs(subtitle = "Priors shown using the black line; they are essentially flat (but not zero) over a large range of values",
+         caption = "Area under all probability density functions is 1")
+  #
+  #
+  # Let's do the same for tau
+  #
+  tau_seq <- seq(from = 0.025, to = 10, length = N)
+  prior_tau_seq <- dgamma(tau_seq, 1.0E-3, 1.0E-3)
+  prior_tau_df <- data.frame(tau_seq, prior_tau_seq)
+  #
+     theme(axis.title = element_text(size = 18),
+          axis.text = element_text(size = 18),
+          strip.text.x = element_text(size = 24),
+          legend.text = element_text(size = 18),
+          legend.title = element_text(size = 18))  +
+    # Add the prior
+    geom_line(aes(x = tau_seq, 
+                  y = prior_tau_seq), 
+              data = prior_tau_df,
+              inherit.aes = FALSE) +
+    labs(subtitle = "Prior shown using the black line; it is essentially flat (but not zero) over a large range of values",
+         caption = "Area under all probability density functions is 1")
+  #
+  # -------------------------------------------------------------
+  #
+  # Caterpillar plots showing the narrowest (HPD) 90% and 95% credible intervals
+  #
+  ggs_caterpillar(Bayesian_Regression.ggs, family = "^beta_0")
+  #
+  ggs_caterpillar(Bayesian_Regression.ggs, family = "^beta_1")
+  ggs_caterpillar(Bayesian_Regression.ggs, family = "^beta_2")
+  ggs_caterpillar(Bayesian_Regression.ggs, family = "^beta_3")
+  ggs_caterpillar(Bayesian_Regression.ggs, family = "^beta_4")
+  #
+  ggs_caterpillar(Bayesian_Regression.ggs, family = "^tau")
+  #
+  ggs_caterpillar(Bayesian_Regression.ggs, family = "^sigma")    
+
